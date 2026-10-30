@@ -363,7 +363,7 @@ details.fold[open] summary{margin-bottom:8px}
   </section>
 
   <section class="tab" id="tab-pacing" hidden>
-    <div id="pacingBody"><div class="notice">Loading the plan and the actuals to date. Spend, new customers, rebills and revenue for the current week will appear here against the cash flow model.</div></div>
+    <div id="pacingBody"><div class="notice">Loading the plan and the actuals to date. Spend, new customers, rebills and revenue will appear here against the cash flow model, by week, month, quarter and plan year.</div></div>
   </section>
 
   <section class="tab" id="tab-hires" hidden>
@@ -485,7 +485,7 @@ details.fold[open] summary{margin-bottom:8px}
       <p class="prose">Three layers keep the call short. The weekly scorecard is the only thing read every week. Diagnostics, such as hook rate or cost per click, are opened only when a scorecard row is off. Slow numbers, such as 90-day value and payback, are reviewed in the first call of each month.</p>
     </div>
     <div class="block">
-      <div class="block-head"><h3>How fresh the numbers are</h3><p>The page is updated automatically once a week. Anything the update could not pull is listed here.</p></div>
+      <div class="block-head"><h3>How fresh the numbers are</h3><p>The page is updated automatically: pacing actuals every morning, everything else once a week on Monday. Anything an update could not pull is listed here.</p></div>
       <div id="fresh"></div>
     </div>
     <div class="block">
@@ -588,7 +588,7 @@ const SOURCES = [
   ['Whose ads are working?','Maia Creative Strategy Dashboard','Spend, NC ROAS, NCPA and hit rate per strategist, from Triple Whale pixel attribution and the strategist code in the ad name.']
 ];
 const COVERAGE = [
-  ['Plan','Spend, new customers, rebills, revenue and cash against the cash flow model.','Pacing tab'],
+  ['Plan','Spend, new customers, rebills, revenue and cash against the cash flow model, by week, month, quarter and plan year.','Pacing tab'],
   ['Money','Revenue, contribution, refunds, cash commitments such as inventory orders and ad bills.','Business rows'],
   ['Acquisition','Spend against budget, cost per new customer, first-order return, channel and ad account health.','Acquisition rows'],
   ['Creative engine','Briefs in, ads out, what is stuck, the one or two learnings from the Friday post-mortem, next week\'s tests.','Creative tab'],
@@ -623,8 +623,8 @@ const BRAND_NAME = {maia:'MAIA', avia:'AVIA', both:'Both brands'};
 
 /* ---------- state ---------- */
 const S = {weeks:{}, order:[], weekId:null, brand:'maia', tab:'week', board:'issue', targets:{}, owners:{}, comments:{}, items:[],
-  loaded:{weeks:false, items:false, plan:false, actuals:false, inv:false, strat:false, cs:false}, tf:'open', tg:'focus', tp:'week', tm:{}, strat:null, swk:null, sm:'ncRoas', refresh:null, refreshCs:null, cs:null, cwk:null, plan:null, actuals:null, cashIn:{}, inv:null, desk:null, pwk:null, db:null, canWrite:null, mode:'connecting', editing:null, solving:null, confirmDel:null};
-try{ const b = localStorage.getItem('wbr.brand'); if(b === 'maia' || b === 'avia') S.brand = b; const t = localStorage.getItem('wbr.board'); if(TYPES[t] && t !== 'action' && t !== 'hire') S.board = t; const tp = localStorage.getItem('wbr.tp'); if(tp === 'week' || tp === 'month') S.tp = tp; }catch(e){}
+  loaded:{weeks:false, items:false, plan:false, actuals:false, inv:false, strat:false, cs:false}, tf:'open', tg:'focus', tp:'week', tm:{}, strat:null, swk:null, sm:'ncRoas', refresh:null, refreshCs:null, refreshDaily:null, cs:null, cwk:null, plan:null, actuals:null, cashIn:{}, inv:null, desk:null, pwk:null, pv:'week', pper:null, db:null, canWrite:null, mode:'connecting', editing:null, solving:null, confirmDel:null};
+try{ const b = localStorage.getItem('wbr.brand'); if(b === 'maia' || b === 'avia') S.brand = b; const t = localStorage.getItem('wbr.board'); if(TYPES[t] && t !== 'action' && t !== 'hire') S.board = t; const tp = localStorage.getItem('wbr.tp'); if(tp === 'week' || tp === 'month') S.tp = tp; const pv = localStorage.getItem('wbr.pv'); if(['week','month','quarter','year'].includes(pv)) S.pv = pv; }catch(e){}
 
 /* ---------- theme ---------- */
 const rootEl = document.documentElement; let themePref = null;
@@ -1061,6 +1061,82 @@ function paceTable(rows, cols){
   return '<table class="pace"><thead><tr><th>Measure</th><th class="r">Actual to date</th><th class="r">Plan to date</th><th>Pace</th><th class="r">' + cols[0] + '</th><th class="r">' + cols[1] + '</th><th>Status</th></tr></thead><tbody>'
     + rows.map(r => '<tr><td class="name">' + esc(r.name) + '</td><td class="r num">' + fmt(r.act, r.f) + '</td><td class="r num muted">' + fmt(r.ptd, r.f) + '</td><td>' + meterHtml(r) + '</td><td class="r num">' + (r.proj == null ? '<span class="muted">—</span>' : fmt(r.proj, r.f)) + '</td><td class="r num muted">' + fmt(r.plan, r.f) + '</td><td>' + chipL(r.st, r.label) + '</td></tr>').join('') + '</tbody></table>';
 }
+/* Periods: the plan runs Oct 1, 2026 to Jun 30, 2027. Month, quarter and year views spread each plan week over its active days,
+   then sum those days inside the period, so every view agrees with the weekly one. */
+const PV = {week:'Week', month:'Month', quarter:'Quarter', year:'Plan year'};
+function planSpan(P){ const a = wkActive(P.weeks[0]), z = wkActive(P.weeks[P.weeks.length - 1]); return {from:a.from, to:z.to}; }
+const monthEnd = m => addD(addD(m + '-01', 32).slice(0,7) + '-01', -1);
+const qOf = m => { const y = +m.slice(0,4), q = Math.ceil(+m.slice(5,7) / 3); return y + '-Q' + q; };
+const qName = k => k.slice(5) + ' ' + k.slice(0,4);
+function periodList(P, kind){
+  const sp = planSpan(P), out = [];
+  if(kind === 'month'){ for(let m = ym(sp.from); m <= ym(sp.to); m = addD(m + '-01', 32).slice(0,7)){ const f = m + '-01' < sp.from ? sp.from : m + '-01', t = monthEnd(m) > sp.to ? sp.to : monthEnd(m); out.push({key:m, name:monthName(m, true), from:f, to:t, short:monthName(m)}); } }
+  else if(kind === 'quarter'){ const seen = {}; for(let m = ym(sp.from); m <= ym(sp.to); m = addD(m + '-01', 32).slice(0,7)){ const q = qOf(m); if(seen[q]) continue; seen[q] = 1; const qs = m.slice(0,4) + '-' + String((+q.slice(6) - 1) * 3 + 1).padStart(2, '0'), qe = monthEnd(m.slice(0,4) + '-' + String(+q.slice(6) * 3).padStart(2, '0')); const f = qs + '-01' < sp.from ? sp.from : qs + '-01', t = qe > sp.to ? sp.to : qe; out.push({key:q, name:qName(q), from:f, to:t, short:q.slice(5)}); } }
+  else out.push({key:'plan', name:'Plan year', from:sp.from, to:sp.to, short:'Plan year'});
+  return out;
+}
+/* Plan totals and plan to date for a date range. Lines are per active day of each plan week. */
+function periodPlan(P, from, to, through){
+  const L = P.lines.cacao, U = P.units, W = P.weeks.length, all = {}, td = {}; const add = (o,k,v) => { o[k] = (o[k] || 0) + v; };
+  for(let d = from; d <= to; d = addD(d, 1)){ const wi = planWeekOf(d); if(wi < 0 || wi >= W) continue; const a = wkActive(P.weeks[wi]); if(d < a.from || d > a.to) continue;
+    const v = {adSpend:L.adSpend[wi], newOrders:L.newOrders[wi], ncRevenue:L.ncRevenue[wi], rebillRevenue:L.rebillRevenue[wi], rebillOrders:L.rebillOrders[wi], revenue:L.revenue[wi], cm:cmPlanWeek(wi), bags:U.cacao[wi], bottles:U.natto[wi]};
+    for(const k in v){ const x = (v[k] || 0) / a.days; add(all, k, x); if(d <= through) add(td, k, x); } }
+  return {all, td};
+}
+/* Actuals for a date range, plus the Sep 28 to 30 rebills that the plan's first week counts (its rebills cover the whole week). */
+function periodActual(P, from, to, through){
+  const A = sumRange(from, to), X = {revenue:0, orders:0, bags:0, bottles:0, cm:0, any:false};
+  P.weeks.forEach(x => { if(!(x.extra && x.extra.length)) return; const a = wkActive(x); if(a.from < from || a.from > to) return; const q = sumRange(null, null, x.extra); if(!q.n || !isNum(q.revenue)) return; X.any = true;
+    const reb = pSub(q.revenue, q.ncRevenue) || 0, share = q.revenue ? reb / q.revenue : 0; X.revenue += reb; X.orders += pSub(q.orders, q.ncOrders) || 0; X.bags += q.bags || 0; X.bottles += q.bottles || 0;
+    X.cm += reb - ((q.refunds || 0) + (q.gateway || 0) + (q.cogs || 0) + (q.shipping || 0)) * share; });
+  const cm = [A.revenue, A.refunds, A.gateway, A.cogs, A.shipping, A.adSpend].every(isNum) ? A.revenue - A.refunds - A.gateway - A.cogs - A.shipping - A.adSpend : null;
+  return {A, X, cm, days: Math.max(0, diffD((to < through ? to : through), from) + 1), total: diffD(to, from) + 1};
+}
+function perAdd(name, f, kind, plan, act, extra){ const full = isNum(act) ? act + (extra || 0) : null, pace = isNum(full) && plan.td > 0 ? full / plan.td : null, st = paceStatus(kind, pace); return {name, f, act: full, plan: plan.all, ptd: plan.td, pace, proj: isNum(pace) ? pace * plan.all : null, st: st[0], label: st[1]}; }
+function periodRows(P, pa, pl){
+  const A = pa.A, X = pa.X, T = pl.td, F = pl.all, R = (k) => ({td:T[k] || 0, all:F[k] || 0});
+  return [
+    perAdd('Ad spend','usdK','band', R('adSpend'), A.adSpend),
+    perAdd('New customers','int','up', R('newOrders'), A.ncOrders),
+    perAdd('New-customer revenue','usdK','up', R('ncRevenue'), A.ncRevenue),
+    paceRatio('First-order ROAS','x','up', pDiv(T.ncRevenue, T.adSpend), pDiv(A.ncRevenue, A.adSpend)),
+    paceRatio('Cost per new customer','usd0','down', pDiv(T.adSpend, T.newOrders), pDiv(A.adSpend, A.ncOrders)),
+    paceRatio('First-order value','usd0','up', pDiv(T.ncRevenue, T.newOrders), pDiv(A.ncRevenue, A.ncOrders)),
+    perAdd('Rebill revenue','usdK','up', R('rebillRevenue'), pSub(A.revenue, A.ncRevenue), X.revenue),
+    perAdd('Rebill orders','int','up', R('rebillOrders'), pSub(A.orders, A.ncOrders), X.orders),
+    perAdd('Total revenue','usdK','up', R('revenue'), A.revenue, X.revenue),
+    perAdd('Contribution margin','usdK','up', R('cm'), pa.cm, X.cm),
+    perAdd('Cacao bags sold','int','band', R('bags'), A.bags, X.bags),
+    perAdd('Natto bottles sold','int','band', R('bottles'), A.bottles, X.bottles)
+  ];
+}
+/* Cumulative revenue, actual against plan, as an inline chart. */
+function cumChart(P, per, through){
+  const L = P.lines.cacao, W = P.weeks.length, pts = [], from = per.from, to = per.to, total = diffD(to, from) + 1; let cp = 0, ca = 0, hasA = false, lastA = 0;
+  for(let d = from, i = 0; d <= to; d = addD(d, 1), i++){ const wi = planWeekOf(d); if(wi >= 0 && wi < W){ const a = wkActive(P.weeks[wi]); if(d >= a.from && d <= a.to) cp += L.revenue[wi] / a.days; }
+    let av = null; if(d <= through){ const x = (S.actuals.days || {})[d]; if(x && isNum(x.revenue)){ ca += x.revenue; hasA = true; } av = ca; lastA = i; }
+    pts.push({d, i, p:cp, a:av}); }
+  const X = S.plan.weeks.find(x => x.extra && x.extra.length && wkActive(x).from >= from && wkActive(x).from <= to), xr = X ? (() => { const q = sumRange(null, null, X.extra); return pSub(q.revenue, q.ncRevenue) || 0; })() : 0;
+  const max = Math.max(cp, ca + xr, 1), Wd = 720, H = 220, pl = 54, pr = 14, pt = 14, pb = 28, iw = Wd - pl - pr, ih = H - pt - pb;
+  const xs = i => pl + (total > 1 ? i / (total - 1) * iw : 0), ys = v => pt + ih - v / max * ih;
+  const pp = pts.map(p => xs(p.i).toFixed(1) + ',' + ys(p.p).toFixed(1)).join(' ');
+  const ap = pts.filter(p => p.a != null).map(p => xs(p.i).toFixed(1) + ',' + ys(p.a + xr).toFixed(1)).join(' ');
+  const ticks = [0, .25, .5, .75, 1].map(t => '<g><line x1="' + pl + '" x2="' + (Wd - pr) + '" y1="' + ys(max * t).toFixed(1) + '" y2="' + ys(max * t).toFixed(1) + '" stroke="var(--line)"/><text x="' + (pl - 6) + '" y="' + (ys(max * t) + 4).toFixed(1) + '" text-anchor="end" font-size="11" fill="var(--muted)">' + fmt(max * t, 'usdK') + '</text></g>').join('');
+  const lab = [0, Math.floor((total - 1) / 2), total - 1].map(i => '<text x="' + xs(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + (i === 0 ? 'start' : i === total - 1 ? 'end' : 'middle') + '" font-size="11" fill="var(--muted)">' + md(pts[i].d) + '</text>').join('');
+  const dot = hasA ? '<circle cx="' + xs(lastA).toFixed(1) + '" cy="' + ys(ca + xr).toFixed(1) + '" r="4" fill="var(--accent)"/>' : '';
+  return '<div class="panel" style="padding:12px 8px 4px"><svg viewBox="0 0 ' + Wd + ' ' + H + '" width="100%" role="img" aria-label="Cumulative revenue, actual against plan" style="display:block;font-family:var(--font-data)">' + ticks + '<polyline points="' + pp + '" fill="none" stroke="var(--line-strong)" stroke-width="2" stroke-dasharray="5 4"/>' + (ap ? '<polyline points="' + ap + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>' : '') + dot + lab + '</svg>'
+    + '<div class="legend" style="padding:6px 8px 8px"><span><i class="sw" style="background:var(--accent)"></i>Revenue to date' + (hasA ? ', ' + fmt(ca + xr, 'usdK') : '') + '</span><span><i class="sw" style="background:var(--line-strong)"></i>Plan, cumulative, ' + fmt(cp, 'usdK') + ' for the period</span></div></div>';
+}
+/* A sub-period table (weeks in a month, months in a quarter or year, quarters in the year). */
+function subTable(P, parts, through, title, note){
+  let t = '<div class="block"><div class="block-head"><h3>' + esc(title) + '</h3>' + (note ? '<p>' + esc(note) + '</p>' : '') + '</div><div class="panel scroll"><table style="min-width:860px"><thead><tr><th>Period</th><th class="r">Revenue</th><th class="r">Plan to date</th><th>Pace</th><th class="r">Full plan</th><th class="r">vs prior</th><th class="r">Ad spend</th><th class="r">Plan to date</th><th class="r">New customers</th><th class="r">Plan to date</th></tr></thead><tbody>';
+  let prev = null;
+  parts.forEach(q => { const started = q.from <= through, pa = started ? periodActual(P, q.from, q.to, through) : null, pl = periodPlan(P, q.from, q.to, through);
+    const rev = pa && isNum(pa.A.revenue) ? pa.A.revenue + pa.X.revenue : null, pace = isNum(rev) && pl.td.revenue > 0 ? rev / pl.td.revenue : null, st = paceStatus('up', pace);
+    const g = isNum(rev) && isNum(prev) && prev > 0 && pa.days >= pa.total ? rev / prev - 1 : null; if(pa && pa.days >= pa.total) prev = rev; else prev = null;
+    t += '<tr' + (started ? '' : ' class="nodata"') + '><td>' + esc(q.name) + (started && pa.days < pa.total ? ' <span class="muted">(' + pa.days + ' of ' + pa.total + ' days)</span>' : '') + '</td><td class="r num">' + fmt(rev, 'usdK') + '</td><td class="r num muted">' + fmt(started ? pl.td.revenue : null, 'usdK') + '</td><td>' + (started ? meterHtml({pace, st:st[0]}) : '<span class="muted">—</span>') + '</td><td class="r num muted">' + fmt(pl.all.revenue, 'usdK') + '</td><td class="r num">' + (g == null ? '<span class="muted">—</span>' : '<span class="delta ' + (g > 0 ? 'good' : g < 0 ? 'bad' : 'flat') + '">' + (g >= 0 ? '+' : '') + (g * 100).toFixed(0) + '%</span>') + '</td><td class="r num">' + fmt(pa ? pa.A.adSpend : null, 'usdK') + '</td><td class="r num muted">' + fmt(started ? pl.td.adSpend : null, 'usdK') + '</td><td class="r num">' + fmt(pa ? pa.A.ncOrders : null, 'int') + '</td><td class="r num muted">' + fmt(started ? pl.td.newOrders : null, 'int') + '</td></tr>'; });
+  return t + '</tbody></table></div></div>';
+}
 function renderPacing(){
   guarded('pacingBody', n => {
     if(S.mode === 'offline'){ n.innerHTML = '<div class="notice"><strong>The plan is not reachable in this view.</strong> Open the page inside Claude while signed in.</div>'; return; }
@@ -1070,43 +1146,52 @@ function renderPacing(){
     const src = P.source || {}, W = P.weeks.length, through = A && A.through, have = !!(through && through >= wkActive(P.weeks[0]).from);
     const cw = have ? Math.max(0, Math.min(W - 1, planWeekOf(through))) : 0;
     if(S.pwk == null || S.pwk > cw || S.pwk < 0) S.pwk = cw; const w = S.pwk, wk = P.weeks[w];
+    if(!PV[S.pv]) S.pv = 'week'; const pv = S.pv;
     const link = src.url ? '<a href="' + esc(src.url) + '" target="_blank" rel="noopener">' + esc(src.title || 'the plan') + '</a>' : esc(src.title || 'the plan');
     let h = '<div style="display:flex;flex-direction:column;gap:28px"><div class="block"><div class="block-head"><h2>Pacing against the plan</h2><p>' + (have ? 'Actuals through ' + md(through) + (A.pulledAt ? ', pulled ' + md(A.pulledAt) : '') + '.' : 'No actuals inside the plan period yet.') + '</p></div>'
-      + '<p class="prose">Plan: ' + link + (src.read ? ', read ' + md(src.read) : '') + '. Weeks are calendar weeks, Monday to Sunday. A weekly plan number is spread evenly over its days to get the plan to date.</p>';
+      + '<p class="prose">Plan: ' + link + (src.read ? ', read ' + md(src.read) : '') + '. Weeks are calendar weeks, Monday to Sunday. A weekly plan number is spread evenly over its days to get the plan to date; months, quarters and the plan year add those days up, so every view agrees with the weekly one.</p>';
     if(S.brand === 'avia'){
       const L = P.lines.avia, first = L.adSpend.findIndex(v => v > 0);
       h += '</div><div class="notice"><strong>Nothing to pace for AVIA yet.</strong> ' + (first >= 0 ? 'Its plan starts in ' + wkName(P.weeks[first]) + ' (' + md(P.weeks[first].start) + ') at $' + nf0.format(L.adSpend[first] / wkActive(P.weeks[first]).days) + ' a day.' : 'The plan has no AVIA spend.') + ' The AVIA store is connected in Triple Whale, so its weekly revenue, orders and ad spend are on the This week tab. Pacing starts when the plan does.</div>';
       if(first >= 0) h += rampHtml(P, L, first, 'AVIA ramp in the plan');
       n.innerHTML = h + '</div>'; return;
     }
-    h += '<div class="ctl"><label for="pwkSel">Week</label><select id="pwkSel" aria-label="Week">' + P.weeks.slice(0, cw + 1).map((x,i) => '<option value="' + i + '"' + (i === w ? ' selected' : '') + '>' + wkLabel(x) + '</option>').join('') + '</select></div></div>';
-    if(!have){ h += '<div class="notice"><strong>The plan starts ' + md(wkActive(P.weeks[0]).from) + '.</strong> Actuals will show once the first days are pulled.</div>' + rampHtml(P, P.lines.cacao, 0, 'The ramp ahead'); n.innerHTML = h + '</div>'; return; }
-    const wa = weekActual(wk), rows = paceRows(w, wa);
-    const pick = ['Ad spend','New customers','Rebill revenue','Total revenue'].map(nm => rows.find(r => r.name === nm));
-    h += '<div class="tiles">' + pick.map(r => '<div class="tile"><div class="eyebrow">' + esc(r.name) + '</div><div class="v">' + pct0(r.pace) + '</div><div class="row"><span class="small muted">' + fmt(r.act, r.f) + ' against ' + fmt(r.ptd, r.f) + ' planned to date</span></div><div>' + chipL(r.st, r.label) + '</div></div>').join('') + '</div>';
-    h += '<div class="block"><div class="block-head"><h3>' + wkName(wk) + ', ' + md(wk.start) + ' to ' + md(wk.end) + '</h3><p>' + wa.A.n + ' of ' + wa.days + ' plan days in.' + (wa.A.miss ? ' ' + wa.A.miss + ' of those days have no data.' : '') + (wa.X ? ' Part week: spend and new customers cover ' + md(wkActive(wk).from) + ' onward, rebills and units cover the whole week.' : '') + ' The tick on each bar is 100% of plan.</p></div><div class="panel scroll">' + paceTable(rows, ['On track for', 'Plan for the week']) + '</div></div>';
-    /* month to date */
-    const m = through.slice(0,7), mFrom = m + '-01', mTo = addD(addD(mFrom, 32).slice(0,7) + '-01', -1), L = P.lines.cacao;
-    const ms = sumRange(mFrom, mTo); let exReb = 0, mixed = false;
-    P.weeks.forEach(x => { if(x.extra && x.extra.length && ym(wkActive(x).from) === m){ mixed = true; const q = sumRange(null, null, x.extra); exReb += pSub(q.revenue, q.ncRevenue) || 0; } });
-    const pm = {to:{}, all:{}}; const add = (o,k,v) => { o[k] = (o[k] || 0) + v; };
-    for(let d = mFrom; d <= mTo; d = addD(d, 1)){ const wi = planWeekOf(d); if(wi < 0 || wi >= W) continue; const a = wkActive(P.weeks[wi]); if(d < a.from || d > a.to) continue; const vals = {revenue:L.revenue[wi] / a.days, adSpend:L.adSpend[wi] / a.days, newOrders:L.newOrders[wi] / a.days, cm:cmPlanWeek(wi) / a.days}; for(const k in vals){ add(pm.all, k, vals[k]); if(d <= through) add(pm.to, k, vals[k]); } }
-    const mcm = [ms.revenue, ms.refunds, ms.gateway, ms.cogs, ms.shipping, ms.adSpend].every(isNum) ? ms.revenue - ms.refunds - ms.gateway - ms.cogs - ms.shipping - ms.adSpend : null;
-    const mrow = (name, f, kind, act, k) => { const pace = isNum(act) && pm.to[k] > 0 ? act / pm.to[k] : null; const st = paceStatus(kind, pace); return {name, f, act: isNum(act) ? act : null, ptd: pm.to[k], pace, proj: isNum(pace) ? pace * pm.all[k] : null, plan: pm.all[k], st: st[0], label: st[1]}; };
-    const mrows = [mrow('Total revenue','usdK','up', isNum(ms.revenue) ? ms.revenue + exReb : null, 'revenue'), mrow('Ad spend','usdK','band', ms.adSpend, 'adSpend'), mrow('New customers','int','up', ms.ncOrders, 'newOrders')]; if(!mixed) mrows.push(mrow('Contribution margin','usdK','up', mcm, 'cm'));
-    h += '<div class="block"><div class="block-head"><h3>' + monthName(m, true) + ' to date</h3><p>' + ms.n + ' days in. On track for holds the current pace against the rest of the month\'s plan.</p></div><div class="panel scroll">' + paceTable(mrows, ['On track for', 'Plan for the month']) + '</div></div>';
-    /* cash */
-    const C = P.cash || {}, inp = P.inputs || {}, cashAct = (S.cashIn['w' + wk.n] || {}).cash;
-    if(C.closing){ const lowV = Math.min.apply(null, C.closing), lowI = C.closing.indexOf(lowV); const gap = isNum(cashAct) ? cashAct - C.closing[w] : null;
-      h += '<div class="block"><div class="block-head"><h3>Cash</h3><p>No bank feed is connected. Enter the balance at the end of the week to compare it with the plan.</p></div><div class="cashrow">'
-        + '<div><div class="eyebrow">Plan closing cash, ' + wkName(wk) + '</div><div class="v">' + fmt(C.closing[w], 'usdK') + '</div><span class="small muted">Card balance in the plan: ' + fmt(C.card[w], 'usdK') + '</span></div>'
-        + '<div><div class="eyebrow">Actual cash in bank</div><input type="text" inputmode="decimal" id="cash-in" data-cash="' + wk.n + '" placeholder="Enter balance" aria-label="Actual cash in bank for ' + wkName(wk) + '" value="' + (isNum(cashAct) ? cashAct : '') + '"' + (ro() ? ' disabled' : '') + '><span class="small muted">' + (gap == null ? 'Not entered' : (gap >= 0 ? fmt(gap, 'usdK') + ' above plan' : fmt(-gap, 'usdK') + ' below plan')) + '</span></div>'
-        + '<div><div class="eyebrow">Lowest point in the plan</div><div class="v">' + fmt(lowV, 'usdK') + '</div><span class="small muted">' + wkName(P.weeks[lowI]) + ', ' + md(P.weeks[lowI].start) + ' to ' + md(P.weeks[lowI].end) + '</span></div>'
-        + '<div><div class="eyebrow">Supplier payments, ' + wkName(wk) + '</div><div class="v">' + fmt(Math.abs((C.committed || [])[w] || 0), 'usdK') + '</div><span class="small muted">Cash buffer to hold: ' + fmt(inp.minBuffer, 'usdK') + '</span></div></div></div>'; }
-    h += rampHtml(P, L, w, 'The ramp ahead');
-    if(cw >= 1){ let t = '<div class="block"><h3>Week by week so far</h3><div class="panel scroll"><table style="min-width:720px"><thead><tr><th>Week</th><th class="r">Revenue</th><th class="r">Plan</th><th class="r">Ad spend</th><th class="r">Plan</th><th class="r">New customers</th><th class="r">Plan</th></tr></thead><tbody>';
-      for(let i = 0; i <= cw; i++){ const x = P.weeks[i], q = weekActual(x), fr = q.days ? q.A.n / q.days : 0, rx = q.X ? (pSub(q.X.revenue, q.X.ncRevenue) || 0) : 0; t += '<tr><td>' + wkLabel(x) + (q.A.n < q.days ? ' <span class="muted">(' + q.A.n + ' days)</span>' : '') + '</td><td class="r num">' + fmt(isNum(q.A.revenue) ? q.A.revenue + rx : null, 'usdK') + '</td><td class="r num muted">' + fmt(L.revenue[i] * fr, 'usdK') + '</td><td class="r num">' + fmt(q.A.adSpend, 'usdK') + '</td><td class="r num muted">' + fmt(L.adSpend[i] * fr, 'usdK') + '</td><td class="r num">' + fmt(q.A.ncOrders, 'int') + '</td><td class="r num muted">' + fmt(L.newOrders[i] * fr, 'int') + '</td></tr>'; }
-      h += t + '</tbody></table></div></div>'; }
+    const seg = '<div class="seg" role="group" aria-label="View" id="paceView">' + Object.keys(PV).map(k => '<button type="button" data-pv="' + k + '" aria-pressed="' + (k === pv) + '">' + PV[k] + '</button>').join('') + '</div>';
+    if(pv === 'week'){
+      h += '<div class="taskbar">' + seg + '<div class="ctl"><label for="pwkSel">Week</label><select id="pwkSel" aria-label="Week">' + P.weeks.slice(0, cw + 1).map((x,i) => '<option value="' + i + '"' + (i === w ? ' selected' : '') + '>' + wkLabel(x) + '</option>').join('') + '</select></div></div></div>';
+      if(!have){ h += '<div class="notice"><strong>The plan starts ' + md(wkActive(P.weeks[0]).from) + '.</strong> Actuals will show once the first days are pulled.</div>' + rampHtml(P, P.lines.cacao, 0, 'The ramp ahead'); n.innerHTML = h + '</div>'; return; }
+      const wa = weekActual(wk), rows = paceRows(w, wa), L = P.lines.cacao;
+      const pick = ['Ad spend','New customers','Rebill revenue','Total revenue'].map(nm => rows.find(r => r.name === nm));
+      h += '<div class="tiles">' + pick.map(r => '<div class="tile"><div class="eyebrow">' + esc(r.name) + '</div><div class="v">' + pct0(r.pace) + '</div><div class="row"><span class="small muted">' + fmt(r.act, r.f) + ' against ' + fmt(r.ptd, r.f) + ' planned to date</span></div><div>' + chipL(r.st, r.label) + '</div></div>').join('') + '</div>';
+      h += '<div class="block"><div class="block-head"><h3>' + wkName(wk) + ', ' + md(wk.start) + ' to ' + md(wk.end) + '</h3><p>' + wa.A.n + ' of ' + wa.days + ' plan days in.' + (wa.A.miss ? ' ' + wa.A.miss + ' of those days have no data.' : '') + (wa.X ? ' Part week: spend and new customers cover ' + md(wkActive(wk).from) + ' onward, rebills and units cover the whole week.' : '') + ' The tick on each bar is 100% of plan.</p></div><div class="panel scroll">' + paceTable(rows, ['On track for', 'Plan for the week']) + '</div></div>';
+      /* cash */
+      const C = P.cash || {}, inp = P.inputs || {}, cashAct = (S.cashIn['w' + wk.n] || {}).cash;
+      if(C.closing){ const lowV = Math.min.apply(null, C.closing), lowI = C.closing.indexOf(lowV); const gap = isNum(cashAct) ? cashAct - C.closing[w] : null;
+        h += '<div class="block"><div class="block-head"><h3>Cash</h3><p>No bank feed is connected. Enter the balance at the end of the week to compare it with the plan.</p></div><div class="cashrow">'
+          + '<div><div class="eyebrow">Plan closing cash, ' + wkName(wk) + '</div><div class="v">' + fmt(C.closing[w], 'usdK') + '</div><span class="small muted">Card balance in the plan: ' + fmt(C.card[w], 'usdK') + '</span></div>'
+          + '<div><div class="eyebrow">Actual cash in bank</div><input type="text" inputmode="decimal" id="cash-in" data-cash="' + wk.n + '" placeholder="Enter balance" aria-label="Actual cash in bank for ' + wkName(wk) + '" value="' + (isNum(cashAct) ? cashAct : '') + '"' + (ro() ? ' disabled' : '') + '><span class="small muted">' + (gap == null ? 'Not entered' : (gap >= 0 ? fmt(gap, 'usdK') + ' above plan' : fmt(-gap, 'usdK') + ' below plan')) + '</span></div>'
+          + '<div><div class="eyebrow">Lowest point in the plan</div><div class="v">' + fmt(lowV, 'usdK') + '</div><span class="small muted">' + wkName(P.weeks[lowI]) + ', ' + md(P.weeks[lowI].start) + ' to ' + md(P.weeks[lowI].end) + '</span></div>'
+          + '<div><div class="eyebrow">Supplier payments, ' + wkName(wk) + '</div><div class="v">' + fmt(Math.abs((C.committed || [])[w] || 0), 'usdK') + '</div><span class="small muted">Cash buffer to hold: ' + fmt(inp.minBuffer, 'usdK') + '</span></div></div></div>'; }
+      h += rampHtml(P, L, w, 'The ramp ahead');
+      if(cw >= 1){ let t = '<div class="block"><h3>Week by week so far</h3><div class="panel scroll"><table style="min-width:720px"><thead><tr><th>Week</th><th class="r">Revenue</th><th class="r">Plan</th><th class="r">Ad spend</th><th class="r">Plan</th><th class="r">New customers</th><th class="r">Plan</th></tr></thead><tbody>';
+        for(let i = 0; i <= cw; i++){ const x = P.weeks[i], q = weekActual(x), fr = q.days ? q.A.n / q.days : 0, rx = q.X ? (pSub(q.X.revenue, q.X.ncRevenue) || 0) : 0; t += '<tr><td>' + wkLabel(x) + (q.A.n < q.days ? ' <span class="muted">(' + q.A.n + ' days)</span>' : '') + '</td><td class="r num">' + fmt(isNum(q.A.revenue) ? q.A.revenue + rx : null, 'usdK') + '</td><td class="r num muted">' + fmt(L.revenue[i] * fr, 'usdK') + '</td><td class="r num">' + fmt(q.A.adSpend, 'usdK') + '</td><td class="r num muted">' + fmt(L.adSpend[i] * fr, 'usdK') + '</td><td class="r num">' + fmt(q.A.ncOrders, 'int') + '</td><td class="r num muted">' + fmt(L.newOrders[i] * fr, 'int') + '</td></tr>'; }
+        h += t + '</tbody></table></div></div>'; }
+    } else {
+      const list = periodList(P, pv), started = list.filter(q => q.from <= (through || '')), cur = started.length ? started[started.length - 1] : list[0];
+      if(!S.pper || !list.some(q => q.key === S.pper && q.from <= (through || ''))) S.pper = cur.key; const per = list.find(q => q.key === S.pper) || cur;
+      h += '<div class="taskbar">' + seg + (pv === 'year' ? '' : '<div class="ctl"><label for="pperSel">' + PV[pv] + '</label><select id="pperSel" aria-label="' + PV[pv] + '">' + list.map(q => '<option value="' + q.key + '"' + (q.key === per.key ? ' selected' : '') + (q.from > (through || '') ? ' disabled' : '') + '>' + esc(q.name) + ' · ' + md(q.from) + ' to ' + md(q.to) + '</option>').join('') + '</select></div>') + '</div></div>';
+      if(!have){ h += '<div class="notice"><strong>The plan starts ' + md(wkActive(P.weeks[0]).from) + '.</strong> Actuals will show once the first days are pulled.</div>'; n.innerHTML = h + '</div>'; return; }
+      const pa = periodActual(P, per.from, per.to, through), pl = periodPlan(P, per.from, per.to, through), rows = periodRows(P, pa, pl);
+      const pick = ['Ad spend','New customers','Rebill revenue','Total revenue'].map(nm => rows.find(r => r.name === nm));
+      h += '<div class="tiles">' + pick.map(r => '<div class="tile"><div class="eyebrow">' + esc(r.name) + '</div><div class="v">' + pct0(r.pace) + '</div><div class="row"><span class="small muted">' + fmt(r.act, r.f) + ' against ' + fmt(r.ptd, r.f) + ' planned to date</span></div><div>' + chipL(r.st, r.label) + '</div></div>').join('') + '</div>';
+      const done = pa.days >= pa.total;
+      h += '<div class="block"><div class="block-head"><h3>' + esc(per.name) + ', ' + md(per.from) + ' to ' + md(per.to) + '</h3><p>' + (done ? 'Complete: ' + pa.total + ' days.' : pa.days + ' of ' + pa.total + ' days in.') + (pa.A.miss ? ' ' + pa.A.miss + ' of those days have no data.' : '') + ' On track for holds the pace so far against the rest of the period\'s plan, so it follows the ramp rather than a flat run rate.' + (pa.X.any ? ' Rebills, units and margin include Sep 28 to 30, which the plan\'s first week counts.' : '') + ' The tick on each bar is 100% of plan.</p></div><div class="panel scroll">' + paceTable(rows, ['On track for', 'Plan for the ' + (pv === 'year' ? 'plan year' : pv)]) + '</div></div>';
+      h += '<div class="block"><div class="block-head"><h3>Revenue, cumulative</h3><p>Where the period stands against the plan line, day by day.</p></div>' + cumChart(P, per, through) + '</div>';
+      if(pv === 'month'){ const wks = P.weeks.map((x, i) => ({x, i})).filter(o => { const a = wkActive(o.x); return a.to >= per.from && a.from <= per.to; }).map(o => { const a = wkActive(o.x); return {name: wkLabel(o.x), from: a.from < per.from ? per.from : a.from, to: a.to > per.to ? per.to : a.to}; });
+        h += subTable(P, wks, through, 'Weeks in ' + per.short, 'Weeks that straddle a month edge are cut at the edge here. The growth column compares complete periods only.'); }
+      else if(pv === 'quarter'){ h += subTable(P, periodList(P, 'month').filter(q => q.from >= per.from && q.to <= per.to), through, 'Months in ' + per.name, 'The growth column compares complete months only.'); }
+      else { h += subTable(P, periodList(P, 'quarter'), through, 'Quarters', 'The growth column compares complete quarters only.'); h += subTable(P, periodList(P, 'month'), through, 'Months', 'The growth column compares complete months only.'); }
+    }
     const notes = (A.notes || []).concat(P.notes || []);
     if(notes.length) h += '<div class="block"><h3>Read this before trusting the comparison</h3><ul class="plain">' + notes.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div>';
     n.innerHTML = h + '</div>';
@@ -1410,14 +1495,14 @@ function renderFresh(){
   const n = document.getElementById('fresh'); if(!n) return;
   const L = S.weeks[S.order[S.order.length - 1]], A = S.actuals, D = S.strat, P = S.plan, Dk = S.desk, R = S.refresh, rows = [];
   rows.push(['Scorecard', L ? weekLabel(L) : 'No week loaded', L && L.pulledAt ? md(L.pulledAt) : '—', 'Triple Whale, Commslayer, ClickUp, Lifetimely']);
-  rows.push(['Pacing actuals and units sold', A && A.through ? 'Through ' + md(A.through) : 'Not loaded', A && A.pulledAt ? md(A.pulledAt) : '—', 'Triple Whale, Shopify']);
+  rows.push(['Pacing actuals and units sold', A && A.through ? 'Through ' + md(A.through) : 'Not loaded', A && A.pulledAt ? md(A.pulledAt) : '—', 'Triple Whale, Shopify (refreshed every morning)']);
   rows.push(['Strategist recap', D && D.through ? 'Through ' + md(D.through) : 'Not loaded', D && D.pulledAt ? md(D.pulledAt) : '—', 'Maia Creative Strategy Dashboard']);
   rows.push(['Customer service', S.cs && S.cs.weeks ? (() => { const ks = Object.keys(S.cs.weeks).sort(), w = S.cs.weeks[ks[ks.length - 1]]; return w ? 'Through ' + md(addD(w.start, (w.days || 7) - 1)) : 'Not loaded'; })() : 'Not loaded', S.cs && S.cs.pulledAt ? md(S.cs.pulledAt) : '—', 'Commslayer, Quo']);
   rows.push(['Reorder run', Dk && Dk.asOf ? 'Projected from ' + md(Dk.asOf) : 'Not loaded', '—', 'Shopify units, counts typed on the Inventory tab']);
   rows.push(['Plan', P && P.source ? esc(P.source.title || 'Cash flow model') : 'Not loaded', P && P.source && P.source.read ? md(P.source.read) : '—', 'Google Sheet, re-read only when the model changes']);
   rows.push(['Tasks, hires, issues, targets, counts', 'Live', 'As typed', 'Edited on this page by the team']);
   let h = '<div class="panel scroll"><table class="plan"><thead><tr><th>Data</th><th>Covers</th><th>Last pulled</th><th>Source</th></tr></thead><tbody>' + rows.map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td>' + r[3] + '</td></tr>').join('') + '</tbody></table></div>';
-  const logs = [R, S.refreshCs].filter(x => x && x.at);
+  const logs = [R, S.refreshCs, S.refreshDaily].filter(x => x && x.at);
   if(!logs.length) h += '<p class="small muted" style="margin-top:10px">The automatic weekly update has not run yet. Its checks will be listed here after the first run.</p>';
   logs.forEach(L2 => { const ck = L2.checks || [], bad = ck.filter(c => !c.ok);
     h += '<p class="small muted" style="margin-top:10px">Last update: ' + esc(mdy(String(L2.at).slice(0,10))) + (L2.by ? ' (' + esc(L2.by) + ')' : '') + (L2.week ? ', for ' + esc(L2.week) : '') + '. ' + (bad.length ? bad.length + ' of ' + ck.length + ' checks need attention.' : ck.length ? 'All ' + ck.length + ' checks passed.' : '') + '</p>';
@@ -1465,6 +1550,7 @@ document.querySelectorAll('.seg button[data-brand]').forEach(b => b.addEventList
 $('#csBody').addEventListener('change', e => { if(e.target.id === 'csWk'){ S.cwk = e.target.value; e.target.blur(); renderService(); } });
 $('#weekSel').addEventListener('change', e => { S.weekId = e.target.value; S.swk = null; S.cwk = null; e.target.blur(); renderAll(); });
 $('#stratBody').addEventListener('change', e => { if(e.target.id === 'stratWk'){ S.swk = e.target.value; e.target.blur(); renderStrat(); } });
+$('#pacingBody').addEventListener('click', e => { const b = e.target.closest('[data-pv]'); if(!b) return; S.pv = b.dataset.pv; try{ localStorage.setItem('wbr.pv', S.pv); }catch(e2){} renderPacing(); });
 $('#stratBody').addEventListener('click', e => { const b = e.target.closest('[data-sm]'); if(!b) return; S.sm = b.dataset.sm; renderStrat(); });
 function fillWeeks(){ const sel = $('#weekSel'); if(!S.order.length){ sel.innerHTML = '<option>No weeks yet</option>'; return; } sel.innerHTML = S.order.slice().reverse().map(id => '<option value="' + esc(id) + '"' + (id === S.weekId ? ' selected' : '') + '>' + esc(weekLabel(S.weeks[id])) + '</option>').join(''); }
 
@@ -1488,9 +1574,10 @@ document.addEventListener('change', e => {
   if(t.dataset.target){ const raw = t.value.replace(/[$,%x\s]/g, ''); const v = raw === '' ? null : Number(raw); if(v !== null && !isFinite(v)){ toast('Targets are numbers, for example 120 or 2.5.'); t.value = ''; return; } const cur = (S.targets[S.brand] || {})[t.dataset.target]; if((cur == null ? null : cur) === v) return; const p = {}; p[S.brand] = {}; p[S.brand][t.dataset.target] = v; merge('settings/targets', p); }
   else if(t.dataset.owner){ const v = t.value.trim(); if((S.owners[t.dataset.owner] || '') === v) return; const p = {}; p[t.dataset.owner] = v; merge('settings/owners', p); }
   else if(t.dataset.note){ const key = S.weekId + '__' + S.brand; const v = t.value.trim(); if(((S.comments[key] || {})[t.dataset.note] || '') === v) return; const p = {}; p[t.dataset.note] = v; merge('comments/' + key, p); }
-  else if(t.dataset.count){ const raw = t.value.replace(/[,\s]/g, ''), v = Number(raw), pl = S.inv && S.inv.pools && S.inv.pools[t.dataset.count]; if(!pl) return; if(raw === '' || !isFinite(v) || v < 0){ toast('A count is a number of units, for example 150000.'); t.value = +pl.count || 0; return; } if(+pl.count === v) return; const patch = {pools:{}}; patch.pools[t.dataset.count] = {count:v, countDate:todayLocal(), countNote:'Count entered on this page.', conf:'counted'}; merge('inventory/pools', patch); }
-  else if(t.dataset.cash){ const raw = t.value.replace(/[$,\s]/g, ''), v = raw === '' ? null : Number(raw); if(v !== null && !isFinite(v)){ toast('Cash is a number, for example 250000.'); t.value = ''; return; } const patch = {}; patch['w' + t.dataset.cash] = {cash:v}; merge('actuals/cash', patch); }
+  else if(t.dataset.count){ const raw = t.value.replace(/[,\s]/g, ''), v = Number(raw), pl = S.inv && S.inv.pools && S.inv.pools[t.dataset.count]; if(!pl) return; if(raw === '' || !isFinite(v) || v < 0){ toast('A count is a number of units, for example 204117.'); t.value = +pl.count || 0; return; } if(+pl.count === v) return; const patch = {pools:{}}; patch.pools[t.dataset.count] = {count:v, countDate:todayLocal(), countNote:'Count entered on this page.', conf:'counted'}; merge('inventory/pools', patch); }
+  else if(t.dataset.cash){ const raw = t.value.replace(/[$,\s]/g, ''), v = raw === '' ? null : Number(raw); if(v !== null && !isFinite(v)){ toast('Cash is a number, for example 602000.'); t.value = ''; return; } const patch = {}; patch['w' + t.dataset.cash] = {cash:v}; merge('actuals/cash', patch); }
   else if(t.id === 'pwkSel'){ S.pwk = +t.value; t.blur(); renderPacing(); }
+  else if(t.id === 'pperSel'){ S.pper = t.value; t.blur(); renderPacing(); }
   else if(t.hasAttribute('data-holder') || t.hasAttribute('data-due') || t.hasAttribute('data-cost')){ const row = t.closest('[data-id]'); if(!row) return; const id = row.dataset.id, it = S.items.find(x => x.id === id); if(!it) return; let patch;
     if(t.hasAttribute('data-holder')){ const v = t.value.trim(); if((it.owner || '') === v) return; patch = {owner:v}; }
     else if(t.hasAttribute('data-due')){ if((it.due || '') === t.value) return; patch = {due:t.value}; }
@@ -1572,7 +1659,7 @@ async function start(){
   db.collection('actuals').onSnapshot(snap => { S.actuals = null; S.cashIn = {}; snap.docs.forEach(d => { if(d.id === 'daily') S.actuals = d.data(); if(d.id === 'cash') S.cashIn = d.data() || {}; }); S.loaded.actuals = true; renderPacing(); renderInventory(); }, () => {});
   db.collection('inventory').onSnapshot(snap => { S.inv = null; S.desk = null; snap.docs.forEach(d => { if(d.id === 'pools') S.inv = d.data(); if(d.id === 'desk') S.desk = d.data(); }); S.loaded.inv = true; renderInventory(); }, () => {});
   db.collection('strategists').onSnapshot(snap => { S.strat = null; snap.docs.forEach(d => { if(d.id === 'weekly') S.strat = d.data(); }); S.loaded.strat = true; renderStrat(); renderFresh(); }, () => { S.loaded.strat = true; renderStrat(); });
-  db.collection('meta').onSnapshot(snap => { S.refresh = null; S.refreshCs = null; snap.docs.forEach(d => { if(d.id === 'refresh') S.refresh = d.data(); if(d.id === 'refresh_cs') S.refreshCs = d.data(); }); renderFresh(); }, () => {});
+  db.collection('meta').onSnapshot(snap => { S.refresh = null; S.refreshCs = null; S.refreshDaily = null; snap.docs.forEach(d => { if(d.id === 'refresh') S.refresh = d.data(); if(d.id === 'refresh_cs') S.refreshCs = d.data(); if(d.id === 'refresh_daily') S.refreshDaily = d.data(); }); renderFresh(); }, () => {});
   db.collection('cs').onSnapshot(snap => { S.cs = null; snap.docs.forEach(d => { if(d.id === 'weekly') S.cs = d.data(); }); S.loaded.cs = true; renderService(); renderFresh(); }, () => { S.loaded.cs = true; renderService(); });
   db.collection('items').onSnapshot(snap => { S.items = snap.docs.map(d => Object.assign({id:d.id}, d.data())).filter(i => TYPES[i.type] && typeof i.title === 'string'); S.items.forEach(i => { if(i.type === 'action' && !TYPES.action.statuses.includes(i.status)) i.status = i.status === 'doing' ? 'in progress' : 'backlog'; }); S.loaded.items = true; renderLists(); }, fail);
 }
