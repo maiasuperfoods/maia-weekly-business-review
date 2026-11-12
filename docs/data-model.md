@@ -14,6 +14,8 @@ Money is in USD. Dates are `YYYY-MM-DD`. Week documents are keyed by the Monday 
 |---|---|
 | `weeks/{Monday}` | `start`, `end`, `iso`, `pulledAt`, `sources[]`, `notes{}`, `brands.{maia,avia}` with the scorecard fields below. The latest week also carries `creative`, `topAds[]`, `supportReasons[]`. |
 | `actuals/daily` | `through`, `latest`, `pulledAt`, `days.{date}` = `revenue, orders, ncOrders, ncRevenue, adSpend, refunds, cogs, shipping, gateway, taxes, bags, bottles`. |
+| `actuals/daily_avia` | Same shape for the AVIA store (no bags or bottles). Read by the Pacing tab when AVIA is selected. |
+| `actuals/daily_haskap` | `through`, `latest`, `pulledAt`, `match`, `zeroFill`, `days.{date}` = `revenue, orders, ncOrders, units` from Shopify sales of product titles containing Haskap. A day inside the pulled range with no entry counts as zero. Read by the Pacing tab and the This week tab when Haskap is selected. |
 | `strategists/weekly` | `source`, `through`, `rules`, `names`, `weeks.{Monday}` = `iso, start, end, days, rows.{code}, total`; each row is `spend, ncRev, nc, ads, tested, winners, potential, launched`. |
 | `cs/weekly` | `pulledAt`, `weeks.{Monday}` = `email, all, admin, reasons, agents[], ai, csat, phone`; `now` (the backlog today); `structure`; `notes[]`; `gaps[]`. |
 | `inventory/desk` | Reorder run settings (`asOf`, `cutoff`, `alpha`, `beta`, `growthClip`, `historyWeeks`, `ewmaWeeks`) and `weeks.{Monday}` = `bags, bottles`. |
